@@ -16,7 +16,7 @@ class Agent:
         self.n_nights = n_nights
         self.fitness = 0
         self.parameters = np.zeros((self.n_nights))
-        self.parameters[0] = 5
+        self.parameters[0] = 0
 
         # self.parameters = np.ones((self.n_nights))
 
@@ -72,17 +72,19 @@ class Bar:
         cfact_type: str,
     ):
         # Counterfactual where agent attends no nights
-        cfact_null_atten_per_night = total_atten_per_night - agent_atten_per_night
+        cfact_atten_per_night_wout_me = total_atten_per_night - agent_atten_per_night
 
         # Set chosen cfact attendance
         cfact_atten_per_night = None
         match (cfact_type):
+            case "zero_counterfactual":
+                cfact_atten_per_night = cfact_atten_per_night_wout_me
             case "fixed_first":
                 cfact_fixed_first_atten_per_night = np.array(
                     [1 if night == 0 else 0 for night in range(self.n_nights)]
                 )
                 cfact_atten_per_night = (
-                    cfact_null_atten_per_night + cfact_fixed_first_atten_per_night
+                    cfact_atten_per_night_wout_me + cfact_fixed_first_atten_per_night
                 )
             case "fixed_last":
                 cfact_fixed_last_atten_per_night = np.array(
@@ -92,7 +94,7 @@ class Bar:
                     ]
                 )
                 cfact_atten_per_night = (
-                    cfact_null_atten_per_night + cfact_fixed_last_atten_per_night
+                    cfact_atten_per_night_wout_me + cfact_fixed_last_atten_per_night
                 )
 
         return self.calculate_reward(total_atten_per_night) - self.calculate_reward(
@@ -243,6 +245,19 @@ def ccea(
                             total_atten_per_night,
                             cfact_type="fixed_last",
                         )
+                    case "difference_zero":
+                        agent.fitness = bar.calc_difference_reward(
+                            selected_nights[i],
+                            total_atten_per_night,
+                            cfact_type="zero_counterfactual",
+                        )
+
+                    case "local_difference":
+                        agent.fitness = bar.calculate_local_reward(
+                            selected_nights[i], total_atten_per_night
+                        ) - bar.calculate_local_reward(
+                            selected_nights[i], total_atten_per_night - 1
+                        )
 
         setPopulation(population, offspring)
 
@@ -254,3 +269,40 @@ def ccea(
             hof_team = best_team
 
     return performance, best_team
+
+
+if __name__ == "__main__":
+    fitness_shaping_types = [
+        "local_difference",
+    ]
+    weeks = 30
+    subpopulation_size = 10
+
+    n_agents = 50
+    optimal_atten = 4
+    n_nights = 6
+
+    performance_dict = {}
+    best_team_attendance_per_night = {}
+
+    for fitness_shaping in fitness_shaping_types:
+        performance, best_team = ccea(
+            fitness_shaping,
+            weeks,
+            optimal_atten,
+            n_nights,
+            n_agents,
+            subpopulation_size,
+        )
+
+        performance_dict[fitness_shaping] = performance
+
+        selected_nights = np.array(
+            [agent.choose_night() for agent in best_team.individuals]
+        )
+        best_team_attendance_per_night[fitness_shaping] = np.sum(
+            selected_nights, axis=0
+        )
+
+    print(best_team_attendance_per_night)
+    print(performance_dict)
